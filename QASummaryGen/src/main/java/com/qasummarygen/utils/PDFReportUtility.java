@@ -20,147 +20,90 @@ import be.quodlibet.boxable.Cell;
 import be.quodlibet.boxable.HorizontalAlignment;
 import be.quodlibet.boxable.Row;
 
+import java.awt.image.BufferedImage;
+import javax.imageio.ImageIO;
+import java.io.ByteArrayOutputStream;
+import java.util.Map;
+
+/**
+ * PDFReportUtility
+ *
+ * - Keeps your existing table/description logic intact
+ * - Adds page border, horizontal dividers and places quick links AFTER the table
+ * - Uses Helvetica-safe output (strips unsupported characters like emoji)
+ * - Properly opens/closes PDPageContentStream to avoid null-output NPEs
+ */
 public class PDFReportUtility {
 
     public static void generatePDFReport(QASummary summary, String outputFilePath) throws IOException {
         PDDocument document = new PDDocument();
-        PDPage page = new PDPage(PDRectangle.A4);
-        document.addPage(page);
+        try {
+            // first page
+            PDPage page = new PDPage(PDRectangle.A4);
+            document.addPage(page);
 
-        float margin = 50;
-        PDRectangle pageSize = page.getMediaBox();
-        float yStart = pageSize.getHeight() - margin;
-        float tableWidth = pageSize.getWidth() - (2 * margin);
-        float yPosition = yStart;
+            float margin = 50;
+            PDRectangle pageSize = page.getMediaBox();
+            float yStart = pageSize.getHeight() - margin;
+            float tableWidth = pageSize.getWidth() - (2 * margin);
+            float yPosition = yStart;
 
-        // Add Quick Links
-        yPosition = addQuickLinks(document, page, margin, yPosition);
+            // 1) Description on page 1
+            addDescription(document, page, margin, yPosition, ReportChartUtility.getStaticReportDescription());
+            // reduce Y for table start (estimate space consumed by description)
+            yPosition -= 80;
 
-        // Add Description
-        yPosition = addDescription(document, page, margin, yPosition - 20, ReportChartUtility.getStaticReportDescription());
+            // 2) Create the table (Boxable handles its own content stream internally)
+            BaseTable table = new BaseTable(yPosition, yStart, margin, tableWidth, margin, document, page, true, true);
+            addHeaderRow(table, "QA Summary Report");
+            addProjectDetails(table, summary);
+            addTestCaseMetrics(table, summary);
+            addBugMetrics(table, summary);
+            addQualityMetrics(table, summary);
+            addSuggestions(table, summary.getSuggestions());
+            addFooter(table, safe(summary.getGeneratedBy()));
+            // draw table
+            table.draw();
+            
+            
 
-        // Table Start
-        BaseTable table = new BaseTable(yPosition - 20, yStart, margin, tableWidth, margin, document, page, true, true);
-        addHeaderRow(table, "QA Summary Report");
-        addProjectDetails(table, summary);
-        addTestCaseMetrics(table, summary);
-        addBugMetrics(table, summary);
-        addQualityMetrics(table, summary);
-        addSuggestions(table, summary.getSuggestions());
-        addFooter(table, summary.getGeneratedBy());
-        table.draw();
+            // 3) Draw a divider at the bottom of page 1 to separate content visually
+            // We cannot reliably compute exact table-end y, so place a divider near the bottom page
+            float dividerY = 120; // safe location above footer/margins (adjust if you need different)
+            drawHorizontalDivider(document, page, margin, dividerY, tableWidth);
 
-        saveDocument(document, outputFilePath);
-    }
+            // 4) Add a second page for Quick Links (always after the table)
+            PDPage quickPage = new PDPage(PDRectangle.A4);
+            document.addPage(quickPage);
 
-    // ----------------- CORE SECTIONS --------------------
+            // draw page border for both pages (append border on page1 and page2)
+            drawPageBorder(document, page, 20f);       // draw border on page 1 (20 margin inside)
+            drawPageBorder(document, quickPage, 20f);  // draw border on quick links page
 
-    private static float addQuickLinks(PDDocument document, PDPage page, float margin, float yPosition) throws IOException {
-        PDPageContentStream cs = new PDPageContentStream(document, page, PDPageContentStream.AppendMode.APPEND, true);
+            // 5) Add a small header on quickPage and the Quick Links content
+            float quickMargin = 50;
+            float quickY = quickPage.getMediaBox().getHeight() - quickMargin;
+            addQuickLinks(document, quickPage, quickMargin, quickY);
 
-        PDType1Font fontBold = PDType1Font.HELVETICA_BOLD;
-        PDType1Font fontRegular = PDType1Font.HELVETICA;
-        int fontSize = 12;
-        float leading = 1.5f * fontSize;
+            // draw divider under quick links
+            float quickDividerY = quickY - 80f; // enough space for quick links; adjust if you add more links
+            drawHorizontalDivider(document, quickPage, quickMargin, quickDividerY, tableWidth);
 
-        cs.beginText();
-        cs.setFont(fontBold, fontSize);
-        cs.newLineAtOffset(margin, yPosition);
-        cs.showText("Quick Links:");
-        cs.endText();
+            // 6) Save document
+            saveDocument(document, outputFilePath);
 
-        yPosition -= leading;
-
-        String[] links = {
-            "Release Confluence Page - https://your-confluence-url",
-            "JIRA Board - https://your-jira-board-url",
-            "JIRA XRay Report - https://your-jira-xray-url"
-        };
-           
-
-        for (String link : links) {
-            cs.beginText();
-            cs.setFont(fontRegular, fontSize);
-            cs.newLineAtOffset(margin, yPosition);
-            cs.showText(link);
-            cs.endText();
-            yPosition -= leading;
-        }
-
-        cs.close();
-        return yPosition;
-    }
-    
-    
-
-    public static float addDescription(PDDocument document, PDPage page, float margin, float yPosition, String descriptionText) throws IOException {
-        PDPageContentStream cs = new PDPageContentStream(document, page, PDPageContentStream.AppendMode.APPEND, true);
-
-        PDType1Font boldFont = PDType1Font.HELVETICA_BOLD;
-        PDType1Font regularFont = PDType1Font.HELVETICA;
-        int headingFontSize = 12;
-        int fontSize = 11;
-        float leading = 1.5f * fontSize;
-        float width = PDRectangle.A4.getWidth() - 2 * margin;
-        float textY = yPosition;
-
-        cs.beginText();
-        cs.setFont(boldFont, headingFontSize);
-        cs.newLineAtOffset(margin, textY);
-        cs.showText("Report Description:");
-        cs.endText();
-
-        textY -= leading;
-
-        List<String> lines = getWrappedLines(descriptionText, regularFont, fontSize, width);
-        for (String line : lines) {
-            cs.beginText();
-            cs.setFont(regularFont, fontSize);
-            cs.newLineAtOffset(margin, textY);
-            cs.showText(line);
-            cs.endText();
-            textY -= leading;
-        }
-
-        cs.close();
-        return textY;
-    }
-
-    private static List<String> getWrappedLines(String text, PDType1Font font, int fontSize, float maxWidth) throws IOException {
-        List<String> lines = new ArrayList<>();
-        StringBuilder currentLine = new StringBuilder();
-
-        for (String word : text.split(" ")) {
-            String testLine = currentLine.length() == 0 ? word : currentLine + " " + word;
-            float textWidth = font.getStringWidth(testLine) / 1000 * fontSize;
-
-            if (textWidth > maxWidth) {
-                lines.add(currentLine.toString());
-                currentLine = new StringBuilder(word);
-            } else {
-                currentLine = new StringBuilder(testLine);
-            }
-        }
-
-        if (currentLine.length() > 0) lines.add(currentLine.toString());
-        return lines;
-    }
-
-    private static void saveDocument(PDDocument document, String outputFilePath) throws IOException {
-        File file = new File(outputFilePath);
-        try (FileOutputStream fos = new FileOutputStream(file)) {
-            document.save(fos);
         } finally {
-            document.close();
+            try {
+                document.close();
+            } catch (Exception ignored) {}
         }
-        System.out.println("✅ PDF report generated successfully: " + file.getAbsolutePath());
     }
 
-    // ---------------- TABLE HELPERS ----------------
+    // ----------------------- Helpers & sections -----------------------
 
     private static void addHeaderRow(BaseTable table, String title) {
         Row<PDPage> headerRow = table.createRow(20);
-        Cell<PDPage> headerCell = headerRow.createCell(100, title);
+        Cell<PDPage> headerCell = headerRow.createCell(100, safe(title));
         headerCell.setFont(PDType1Font.HELVETICA_BOLD);
         headerCell.setFontSize(16);
         headerCell.setFillColor(new Color(173, 216, 230));
@@ -168,20 +111,26 @@ public class PDFReportUtility {
         table.addHeaderRow(headerRow);
     }
 
-    private static void addRow(BaseTable table, String key, String value) {
-        Row<PDPage> row = table.createRow(16);
-        Cell<PDPage> cell1 = row.createCell(30, key);
-        Cell<PDPage> cell2 = row.createCell(70, value);
-        cell1.setFont(PDType1Font.HELVETICA_BOLD);
-        cell2.setFont(PDType1Font.HELVETICA);
-        cell1.setFontSize(11);
-        cell2.setFontSize(11);
-    }
-
     private static void addProjectDetails(BaseTable table, QASummary summary) {
-        addRow(table, "Project Name", summary.getProjectName());
-        addRow(table, "Sprint Name", summary.getSprintName());
-        addRow(table, "Sprint Duration", summary.getSprintStartDate() + " to " + summary.getSprintEndDate());
+        addRow(table, "Project Name", safe(summary.getProjectName()));
+        // Sprint Name and Duration may be in the SprintSummary; try both locations
+        String sprintName = safe(summary.getSprintName());
+        if ((sprintName == null || sprintName.isBlank()) && summary.getSprintSummary() != null) {
+            sprintName = safe(summary.getSprintSummary().getSprintName());
+        }
+        String sprintStart = safe(summary.getSprintStartDate());
+        String sprintEnd = safe(summary.getSprintEndDate());
+        if ((sprintStart == null || sprintStart.isBlank() || sprintEnd == null || sprintEnd.isBlank())
+                && summary.getSprintSummary() != null) {
+            if (sprintStart == null || sprintStart.isBlank())
+                sprintStart = safe(summary.getSprintSummary().getSprintStartDate());
+            if (sprintEnd == null || sprintEnd.isBlank())
+                sprintEnd = safe(summary.getSprintSummary().getSprintEndDate());
+        }
+
+        addRow(table, "Sprint Name", sprintName == null ? "" : sprintName);
+        addRow(table, "Sprint Start Date", sprintStart == null ? "" : sprintStart);
+        addRow(table, "Sprint End Date", sprintEnd == null ? "" : sprintEnd);
     }
 
     private static void addTestCaseMetrics(BaseTable table, QASummary summary) {
@@ -207,7 +156,7 @@ public class PDFReportUtility {
     private static void addSuggestions(BaseTable table, List<String> suggestions) {
         if (suggestions != null && !suggestions.isEmpty()) {
             for (int i = 0; i < suggestions.size(); i++) {
-                addRow(table, "Suggestion " + (i + 1), suggestions.get(i));
+                addRow(table, "Suggestion " + (i + 1), safe(suggestions.get(i)));
             }
         }
     }
@@ -215,15 +164,165 @@ public class PDFReportUtility {
     private static void addFooter(BaseTable table, String generatedBy) {
         String now = LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm:ss"));
         addRow(table, "Generated On", now);
-        addRow(table, "Generated By", generatedBy);
+        addRow(table, "Generated By", safe(generatedBy));
     }
-    
-    private static void drawDividerLine(PDPageContentStream cs, float startX, float y, float width) throws IOException {
-        cs.setStrokingColor(Color.GRAY);  // Light gray divider
-        cs.setLineWidth(0.5f);
+
+    private static void addRow(BaseTable table, String key, String value) {
+        Row<PDPage> row = table.createRow(16);
+        Cell<PDPage> cell1 = row.createCell(30, safe(key));
+        Cell<PDPage> cell2 = row.createCell(70, safe(value));
+        cell1.setFont(PDType1Font.HELVETICA_BOLD);
+        cell2.setFont(PDType1Font.HELVETICA);
+        cell1.setFontSize(11);
+        cell2.setFontSize(11);
+    }
+
+    // ---------------- Description ----------------
+    public static void addDescription(PDDocument document, PDPage page, float margin, float yPosition, String descriptionText) throws IOException {
+        // Use append mode and close afterwards to avoid interfering with BaseTable
+        try (PDPageContentStream contentStream = new PDPageContentStream(document, page, PDPageContentStream.AppendMode.APPEND, true)) {
+            String heading = "Report Description:";
+            PDType1Font boldFont = PDType1Font.HELVETICA_BOLD;
+            PDType1Font regularFont = PDType1Font.HELVETICA;
+            int headingFontSize = 12;
+            int fontSize = 11;
+            float leading = 1.5f * fontSize;
+            float width = PDRectangle.A4.getWidth() - 2 * margin;
+            float textY = yPosition;
+
+            // Heading
+            contentStream.beginText();
+            contentStream.setFont(boldFont, headingFontSize);
+            contentStream.newLineAtOffset(margin, textY);
+            contentStream.showText(stripUnsupportedCharacters(heading));
+            contentStream.endText();
+
+            // lines
+            List<String> lines = getWrappedLines(descriptionText, regularFont, fontSize, width);
+            textY -= leading;
+
+            for (String line : lines) {
+                contentStream.beginText();
+                contentStream.setFont(regularFont, fontSize);
+                contentStream.newLineAtOffset(margin, textY);
+                contentStream.showText(stripUnsupportedCharacters(line));
+                contentStream.endText();
+                textY -= leading;
+            }
+
+            // divider right after description
+            float dividerY = textY - 10;
+            drawLineInternal(contentStream, margin, dividerY, width);
+        }
+    }
+
+    // ---------------- Quick links (new page) ----------------
+    private static void addQuickLinks(PDDocument document, PDPage page, float margin, float yPosition) throws IOException {
+        try (PDPageContentStream contentStream = new PDPageContentStream(document, page, PDPageContentStream.AppendMode.APPEND, true)) {
+            PDType1Font boldFont = PDType1Font.HELVETICA_BOLD;
+            PDType1Font regularFont = PDType1Font.HELVETICA;
+            int fontSize = 12;
+            float leading = 1.5f * fontSize;
+            float y = yPosition;
+
+            contentStream.beginText();
+            contentStream.setFont(boldFont, 14);
+            contentStream.newLineAtOffset(margin, y);
+            contentStream.showText(stripUnsupportedCharacters("Quick Links:"));
+            contentStream.endText();
+
+            y -= leading;
+
+            String[][] links = {
+                    {"Release Confluence Page", "https://your-confluence-url"},
+                    {"JIRA Board", "https://your-jira-board-url"},
+                    {"JIRA XRay Report", "https://your-jira-xray-url"}
+            };
+
+            for (String[] link : links) {
+                contentStream.beginText();
+                contentStream.setFont(regularFont, fontSize);
+                contentStream.newLineAtOffset(margin, y);
+                contentStream.showText(stripUnsupportedCharacters(link[0] + " - " + link[1]));
+                contentStream.endText();
+                y -= leading;
+            }
+        }
+    }
+
+    // ---------------- Page border & divider utilities ----------------
+
+    private static void drawPageBorder(PDDocument document, PDPage page, float innerMargin) throws IOException {
+        // Append border after content: open/close contentStream safely
+        try (PDPageContentStream cs = new PDPageContentStream(document, page, PDPageContentStream.AppendMode.APPEND, true)) {
+            float w = page.getMediaBox().getWidth();
+            float h = page.getMediaBox().getHeight();
+            float x = innerMargin;
+            float y = innerMargin;
+            float width = w - 2 * innerMargin;
+            float height = h - 2 * innerMargin;
+
+            cs.setStrokingColor(Color.DARK_GRAY);
+            cs.setLineWidth(1.0f);
+            cs.addRect(x, y, width, height);
+            cs.stroke();
+        }
+    }
+
+    private static void drawHorizontalDivider(PDDocument document, PDPage page, float startX, float y, float width) throws IOException {
+        try (PDPageContentStream cs = new PDPageContentStream(document, page, PDPageContentStream.AppendMode.APPEND, true)) {
+            drawLineInternal(cs, startX, y, width);
+        }
+    }
+
+    private static void drawLineInternal(PDPageContentStream cs, float startX, float y, float width) throws IOException {
+        cs.setStrokingColor(Color.GRAY);
+        cs.setLineWidth(0.7f);
         cs.moveTo(startX, y);
         cs.lineTo(startX + width, y);
         cs.stroke();
     }
 
+    // ---------------- small helpers ----------------
+
+    private static String safe(String s) {
+        if (s == null) return "";
+        return s;
+    }
+
+    private static String stripUnsupportedCharacters(String input) {
+        if (input == null) return "";
+        // keep common ASCII characters only to avoid PDFBox font issues (no emojis)
+        return input.replaceAll("[^\\x00-\\x7F]", "");
+    }
+
+    private static List<String> getWrappedLines(String text, PDType1Font font, int fontSize, float maxWidth) throws IOException {
+        if (text == null) return new ArrayList<>();
+        List<String> lines = new ArrayList<>();
+        StringBuilder currentLine = new StringBuilder();
+        for (String word : text.split("\\s+")) {
+            String testLine = currentLine.length() == 0 ? word : currentLine + " " + word;
+            float textWidth = font.getStringWidth(stripUnsupportedCharacters(testLine)) / 1000 * fontSize;
+            if (textWidth > maxWidth) {
+                if (currentLine.length() > 0) lines.add(currentLine.toString());
+                currentLine = new StringBuilder(word);
+            } else {
+                currentLine = new StringBuilder(testLine);
+            }
+        }
+        if (currentLine.length() > 0) lines.add(currentLine.toString());
+        return lines;
+    }
+
+    private static void saveDocument(PDDocument document, String outputFilePath) throws IOException {
+        File file = new File(outputFilePath);
+        try (FileOutputStream fos = new FileOutputStream(file)) {
+            document.save(fos);
+        } finally {
+            // don't close document here; caller will close in finally
+        }
+        System.out.println("✅ PDF report generated successfully: " + file.getAbsolutePath());
+    }
+    
+    
 }

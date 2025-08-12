@@ -75,7 +75,8 @@ public class PDFReportUtility {
     private static void addProjectDetails(BaseTable table, QASummary summary) {
         addRow(table, "Project Name", summary.getProjectName());
         addRow(table, "Sprint Name", summary.getSprintName());
-        addRow(table, "Sprint Duration", summary.getSprintStartDate() + " to " + summary.getSprintEndDate());
+        addRow(table, "Sprint Start Date", summary.getSprintStartDate());	
+	addRow(table, "Sprint End Date", summary.getSprintStartDate());
     }
 
     private static void addTestCaseMetrics(BaseTable table, QASummary summary) {

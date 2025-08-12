@@ -11,7 +11,7 @@ public class MainRunner {
     public static void main(String[] args) {
 
         // ✅ 1. Provide path to your Excel input file
-        String excelPath = "C:\\Users\\SREETOMA\\OneDrive\\Desktop\\vibeCoding\\QASummaryGen\\src\\main\\java\\Resource\\sprint_data.xlsx";
+        String excelPath = "C:\\Users\\SREETOMA\\git\\QASummaryReport\\QASummaryGen\\src\\main\\java\\Resource\\sprint_data.xlsx";
 
         // ✅ 2. Generate timestamp for output file naming
         String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));

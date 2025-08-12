@@ -14,46 +14,55 @@ import org.jfree.chart.plot.PlotOrientation;
 import org.jfree.data.category.DefaultCategoryDataset;
 import org.jfree.data.general.DefaultPieDataset;
 
+/**
+ * Utility class for generating Test Case & Bug Charts for PDF QA Summary Reports.
+ */
 public class ReportChartUtility {
 
-    // 1. Generate Pie Chart from Raw TestCases List
-    public static BufferedImage generateTestCaseStatusChart(List<TestCaseUtils> testCases) {
+    private static final int CHART_WIDTH = 500;
+    private static final int CHART_HEIGHT = 300;
+
+    /** ----------------------------
+     *  PIE CHART GENERATION METHODS
+     *  ----------------------------
+     */
+
+    // From TestCase list
+    public static BufferedImage generateTestCaseStatusPie(List<TestCaseUtils> testCases) {
         Map<String, Integer> statusCount = new HashMap<>();
         for (TestCaseUtils tc : testCases) {
             String status = tc.getStatus() != null ? tc.getStatus().trim() : "Unknown";
             statusCount.put(status, statusCount.getOrDefault(status, 0) + 1);
         }
-        return generateTestCaseStatusChartFromSummary(statusCount);
+        return generatePieChart(statusCount, "Test Case Execution Status");
     }
 
-    // 2. Generate Pie Chart from Raw Bug List
-    public static BufferedImage generateBugSeverityChart(List<BugUtils> bugs) {
+    // From Bug list
+    public static BufferedImage generateBugSeverityPie(List<BugUtils> bugs) {
         Map<String, Integer> severityCount = new HashMap<>();
         for (BugUtils bug : bugs) {
             String severity = bug.getSeverity() != null ? bug.getSeverity().trim() : "Unknown";
             severityCount.put(severity, severityCount.getOrDefault(severity, 0) + 1);
         }
-        return generateBugSeverityChartFromSummary(severityCount);
+        return generatePieChart(severityCount, "Bug Severity Distribution");
     }
+    
 
-    // 3. NEW: Generate TestCaseStatus Chart using SummaryStats sheet data
-    public static BufferedImage generateTestCaseStatusChartFromSummary(Map<String, Integer> testCaseStats) {
-        if (testCaseStats == null || testCaseStats.isEmpty()) return null;
+    // Generic Pie Chart generator
+    private static BufferedImage generatePieChart(Map<String, Integer> data, String title) {
+        if (data == null || data.isEmpty()) {
+            return null; // No chart if no data
+        }
 
         DefaultPieDataset<String> dataset = new DefaultPieDataset<>();
-        int total = 0;
-
-        for (Map.Entry<String, Integer> entry : testCaseStats.entrySet()) {
+        for (Map.Entry<String, Integer> entry : data.entrySet()) {
             if (entry.getValue() > 0) {
                 dataset.setValue(entry.getKey() + " (" + entry.getValue() + ")", entry.getValue());
-                total += entry.getValue();
             }
         }
 
-        dataset.setValue("Total Test Cases (" + total + ")", total);
-
         JFreeChart chart = ChartFactory.createPieChart(
-                "Test Case Execution Status",
+                title,
                 dataset,
                 true,
                 true,
@@ -61,38 +70,45 @@ public class ReportChartUtility {
         );
 
         formatPieChart(chart);
-        return chart.createBufferedImage(500, 300);
+        return chart.createBufferedImage(CHART_WIDTH, CHART_HEIGHT);
     }
 
-    // 4. NEW: Generate BugSeverity Chart using SummaryStats sheet data
-    public static BufferedImage generateBugSeverityChartFromSummary(Map<String, Integer> bugStats) {
-        if (bugStats == null || bugStats.isEmpty()) return null;
+    /** ----------------------------
+     *  BAR CHART GENERATION METHODS
+     *  ----------------------------
+     */
 
-        DefaultPieDataset<String> dataset = new DefaultPieDataset<>();
-        int total = 0;
+    public static BufferedImage generateTestCaseStatusBar(Map<String, Integer> testCaseStats1) {
+        return generateBarChart(testCaseStats1, "Test Case Status Chart", "Status", "Count");
+    }
 
-        for (Map.Entry<String, Integer> entry : bugStats.entrySet()) {
-            if (entry.getValue() > 0) {
-                dataset.setValue(entry.getKey() + " Bugs (" + entry.getValue() + ")", entry.getValue());
-                total += entry.getValue();
-            }
+    public static BufferedImage generateBugSeverityBar(Map<String, Integer> bugSeverityCounts) {
+        return generateBarChart(bugSeverityCounts, "Bug Severity Chart", "Severity", "Count");
+    }
+
+    private static BufferedImage generateBarChart(Map<String, Integer> data, String title, String xAxis, String yAxis) {
+        if (data == null || data.isEmpty()) {
+            return null;
         }
 
-        dataset.setValue("Total Bugs (" + total + ")", total);
+        DefaultCategoryDataset dataset = new DefaultCategoryDataset();
+        for (Map.Entry<String, Integer> entry : data.entrySet()) {
+            dataset.addValue(entry.getValue(), title, entry.getKey());
+        }
 
-        JFreeChart chart = ChartFactory.createPieChart(
-                "Bug Severity Distribution",
-                dataset,
-                true,
-                true,
-                false
+        JFreeChart barChart = ChartFactory.createBarChart(
+                title, xAxis, yAxis, dataset,
+                PlotOrientation.VERTICAL, false, true, false
         );
 
-        formatPieChart(chart);
-        return chart.createBufferedImage(500, 300);
+        barChart.setBackgroundPaint(Color.WHITE);
+        return barChart.createBufferedImage(CHART_WIDTH, CHART_HEIGHT);
     }
 
-    // 5. Common pie chart formatting
+    /** ----------------------------
+     *  COMMON FORMATTING
+     *  ----------------------------
+     */
     private static void formatPieChart(JFreeChart chart) {
         chart.setBackgroundPaint(Color.WHITE);
         PiePlot plot = (PiePlot) chart.getPlot();
@@ -101,42 +117,13 @@ public class ReportChartUtility {
         plot.setOutlineVisible(false);
     }
 
-    // 6. Static report description
+    /** ----------------------------
+     *  STATIC REPORT DESCRIPTION
+     *  ----------------------------
+     */
     public static String getStaticReportDescription() {
         return "This PDF report presents a QA summary for the sprint, including the number of test cases "
              + "(manual and automated), execution results, bug distribution by severity, and key suggestions. "
-             + "Charts have been provided to visualize execution trends and bug severity distribution.";
+             + "Charts provide a visual overview of testing progress and defect trends.";
     }
-    
-    public static BufferedImage generateBugSeverityChart(Map<String, Integer> bugSeverityCounts) {
-        DefaultCategoryDataset dataset = new DefaultCategoryDataset();
-
-        for (Map.Entry<String, Integer> entry : bugSeverityCounts.entrySet()) {
-            dataset.addValue(entry.getValue(), "Bug Severity", entry.getKey());
-        }
-
-        JFreeChart barChart = ChartFactory.createBarChart(
-            "Bug Severity Chart", "Severity", "Count", dataset,
-            PlotOrientation.VERTICAL, false, true, false
-        );
-
-        return barChart.createBufferedImage(500, 300);
-    }
-    
-    public static BufferedImage generateTestCaseStatusChart(Map<String, Integer> testCaseCounts) {
-        DefaultCategoryDataset dataset = new DefaultCategoryDataset();
-
-        for (Map.Entry<String, Integer> entry : testCaseCounts.entrySet()) {
-            dataset.addValue(entry.getValue(), "Test Case Status", entry.getKey());
-        }
-
-        JFreeChart barChart = ChartFactory.createBarChart(
-            "Test Case Status Chart", "Status", "Count", dataset,
-            PlotOrientation.VERTICAL, false, true, false
-        );
-
-        return barChart.createBufferedImage(500, 300);
-    }
-
-
 }
