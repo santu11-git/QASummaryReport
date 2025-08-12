@@ -20,11 +20,6 @@ import be.quodlibet.boxable.Cell;
 import be.quodlibet.boxable.HorizontalAlignment;
 import be.quodlibet.boxable.Row;
 
-import java.awt.image.BufferedImage;
-import javax.imageio.ImageIO;
-import java.io.ByteArrayOutputStream;
-import java.util.Map;
-
 /**
  * PDFReportUtility
  *
@@ -70,7 +65,7 @@ public class PDFReportUtility {
             // 3) Draw a divider at the bottom of page 1 to separate content visually
             // We cannot reliably compute exact table-end y, so place a divider near the bottom page
             float dividerY = 120; // safe location above footer/margins (adjust if you need different)
-            drawHorizontalDivider(document, page, margin, dividerY, tableWidth);
+         //   drawHorizontalDivider(document, page, margin, dividerY, tableWidth);
 
             // 4) Add a second page for Quick Links (always after the table)
             PDPage quickPage = new PDPage(PDRectangle.A4);
@@ -89,6 +84,17 @@ public class PDFReportUtility {
             float quickDividerY = quickY - 80f; // enough space for quick links; adjust if you add more links
             drawHorizontalDivider(document, quickPage, quickMargin, quickDividerY, tableWidth);
 
+            
+         // Attach the Excel file to PDF:
+			/*
+			 * System.out.println("Excel file path in summary: " +
+			 * summary.getExcelFilePath()); if (summary.getExcelFilePath() != null &&
+			 * !summary.getExcelFilePath().isEmpty()) { AttachExcelToPDF.attach(document,
+			 * summary.getExcelFilePath()); System.out.println("Document attached"); }
+			 */
+            
+            AttachExcelToPDF.attach(document, "C:\\Users\\SREETOMA\\git\\QASummaryReport\\QASummaryGen\\src\\main\\java\\Resource\\sprint_data.xlsx");
+           
             // 6) Save document
             saveDocument(document, outputFilePath);
 
@@ -211,8 +217,9 @@ public class PDFReportUtility {
             }
 
             // divider right after description
-            float dividerY = textY - 10;
-            drawLineInternal(contentStream, margin, dividerY, width);
+            
+            float quickDividerY = textY - 10;
+            drawHorizontalDivider(document, page, margin, quickDividerY, page.getMediaBox().getWidth() - 2 * margin);
         }
     }
 
@@ -247,8 +254,32 @@ public class PDFReportUtility {
                 contentStream.endText();
                 y -= leading;
             }
+         // Draw divider after Quick Links
+            float quickDividerY = yPosition - (leading * (links.length + 1));
+            drawHorizontalDivider(document, page, margin, quickDividerY, page.getMediaBox().getWidth() - 2 * margin);
+            
+            float noteStartY = quickDividerY - 20; // gap after divider
+            
+            
+            
+            try (PDPageContentStream contentStream1 = new PDPageContentStream(document, page, PDPageContentStream.AppendMode.APPEND, true)) {
+                List<String> noteLines = getWrappedLines(ReportChartUtility.getExcelDownloadNote(), regularFont, 8, page.getMediaBox().getWidth() - 2 * margin);
+                for (String line : noteLines) {
+                    contentStream1.beginText();
+                    contentStream1.setFont(regularFont, 8);
+                    contentStream1.newLineAtOffset(margin, noteStartY);
+                    contentStream1.showText(stripUnsupportedCharacters(line));
+                    contentStream1.endText();
+                    noteStartY -= 14; // line spacing
+                }
+                
+                // Draw divider after the note
+                drawHorizontalDivider(document, page, margin, noteStartY - 5, page.getMediaBox().getWidth() - 2 * margin);
+            }
         }
     }
+    
+    
 
     // ---------------- Page border & divider utilities ----------------
 
@@ -313,6 +344,8 @@ public class PDFReportUtility {
         if (currentLine.length() > 0) lines.add(currentLine.toString());
         return lines;
     }
+    
+    
 
     private static void saveDocument(PDDocument document, String outputFilePath) throws IOException {
         File file = new File(outputFilePath);
